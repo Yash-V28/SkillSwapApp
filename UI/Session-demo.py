@@ -1,6 +1,6 @@
 import calendar
 from datetime import date, time
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 import flet as ft
 
@@ -24,7 +24,6 @@ SELECTED = "#707070"
 ACCENT = "#3F8C85"
 ACCENT_DARK = "#244743"
 ACCENT_LIGHT = "#A9E8DF"
-ERROR = "#EF9A9A"
 
 
 def main(page: ft.Page) -> None:
@@ -33,7 +32,6 @@ def main(page: ft.Page) -> None:
     page.bgcolor = PAGE_BACKGROUND
     page.padding = 0
 
-    # Each connected browser/device receives its own client.
     supabase = create_supabase_client()
     launcher = ft.UrlLauncher()
 
@@ -67,33 +65,22 @@ def main(page: ft.Page) -> None:
     # General helpers
     # ---------------------------------------------------------
 
+    def close_dialog(event: ft.ControlEvent) -> None:
+        page.pop_dialog()
+
     def show_error(message: str) -> None:
-        dialog = ft.AlertDialog(
-            title=ft.Text("Something went wrong"),
-            content=ft.Text(message),
-            actions=[
-                ft.TextButton(
-                    "Close",
-                    on_click=lambda event: page.pop_dialog(),
-                )
-            ],
+        page.show_dialog(
+            ft.AlertDialog(
+                title=ft.Text("Something went wrong"),
+                content=ft.Text(message),
+                actions=[
+                    ft.TextButton(
+                        "Close",
+                        on_click=close_dialog,
+                    )
+                ],
+            )
         )
-
-        page.show_dialog(dialog)
-
-    def show_message(title: str, message: str) -> None:
-        dialog = ft.AlertDialog(
-            title=ft.Text(title),
-            content=ft.Text(message),
-            actions=[
-                ft.TextButton(
-                    "Close",
-                    on_click=lambda event: page.pop_dialog(),
-                )
-            ],
-        )
-
-        page.show_dialog(dialog)
 
     def format_booking_date(value: Any) -> str:
         try:
@@ -106,20 +93,29 @@ def main(page: ft.Page) -> None:
         try:
             cleaned = str(value).split("+")[0]
             parsed = time.fromisoformat(cleaned)
-
-            # Works on macOS and Linux.
             return parsed.strftime("%-I:%M %p")
         except (TypeError, ValueError):
             return str(value or "")
 
-    def normalise_format(booking: dict[str, Any]) -> str:
-        return str(booking.get("format") or "").lower().replace("-", "_")
+    def normalise_format(
+        booking: dict[str, Any],
+    ) -> str:
+        return (
+            str(booking.get("format") or "")
+            .strip()
+            .lower()
+            .replace("-", "_")
+            .replace(" ", "_")
+        )
 
-    def is_online(booking: dict[str, Any]) -> bool:
+    def is_online(
+        booking: dict[str, Any],
+    ) -> bool:
         return normalise_format(booking) in {
             "online",
             "online_session",
             "video",
+            "video_call",
         }
 
     # ---------------------------------------------------------
@@ -162,20 +158,25 @@ def main(page: ft.Page) -> None:
         password = password_field.value or ""
 
         if not email or not password:
-            auth_message.value = "Enter your email and password."
+            auth_message.value = (
+                "Enter your email and password."
+            )
             page.update()
             return False
 
         if len(password) < 6:
             auth_message.value = (
-                "Your password must contain at least 6 characters."
+                "Your password must contain at least "
+                "6 characters."
             )
             page.update()
             return False
 
         return True
 
-    def set_auth_loading(loading: bool) -> None:
+    def set_auth_loading(
+        loading: bool,
+    ) -> None:
         login_button.disabled = loading
         register_button.disabled = loading
 
@@ -184,18 +185,26 @@ def main(page: ft.Page) -> None:
 
         page.update()
 
-    def handle_login(event: ft.ControlEvent) -> None:
+    def handle_login(
+        event: ft.ControlEvent,
+    ) -> None:
         if not validate_auth_fields():
             return
 
         set_auth_loading(True)
 
         try:
-            response = supabase.auth.sign_in_with_password(
-                {
-                    "email": email_field.value.strip(),
-                    "password": password_field.value,
-                }
+            response = (
+                supabase.auth.sign_in_with_password(
+                    {
+                        "email": (
+                            email_field.value or ""
+                        ).strip(),
+                        "password": (
+                            password_field.value or ""
+                        ),
+                    }
+                )
             )
 
             if response.user is None:
@@ -206,12 +215,16 @@ def main(page: ft.Page) -> None:
             show_sessions_page()
 
         except Exception as error:
-            auth_message.value = f"Login failed: {error}"
+            auth_message.value = (
+                f"Login failed: {error}"
+            )
 
         finally:
             set_auth_loading(False)
 
-    def handle_register(event: ft.ControlEvent) -> None:
+    def handle_register(
+        event: ft.ControlEvent,
+    ) -> None:
         if not validate_auth_fields():
             return
 
@@ -220,22 +233,28 @@ def main(page: ft.Page) -> None:
         try:
             response = supabase.auth.sign_up(
                 {
-                    "email": email_field.value.strip(),
-                    "password": password_field.value,
+                    "email": (
+                        email_field.value or ""
+                    ).strip(),
+                    "password": (
+                        password_field.value or ""
+                    ),
                 }
             )
 
             if response.session is None:
                 auth_message.value = (
-                    "Account created. Check your email, confirm the "
-                    "account, and then log in."
+                    "Account created. Check your email, "
+                    "confirm the account, and then log in."
                 )
             else:
                 state["user"] = response.user
                 show_sessions_page()
 
         except Exception as error:
-            auth_message.value = f"Registration failed: {error}"
+            auth_message.value = (
+                f"Registration failed: {error}"
+            )
 
         finally:
             set_auth_loading(False)
@@ -254,7 +273,9 @@ def main(page: ft.Page) -> None:
             alignment=ft.Alignment.CENTER,
             content=ft.Column(
                 tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                horizontal_alignment=(
+                    ft.CrossAxisAlignment.CENTER
+                ),
                 spacing=16,
                 controls=[
                     ft.Container(
@@ -304,21 +325,35 @@ def main(page: ft.Page) -> None:
         tooltip="Switch to desktop mode",
     )
 
-    def toggle_device_mode(event: ft.ControlEvent) -> None:
-        state["mobile_mode"] = not state["mobile_mode"]
+    def toggle_device_mode(
+        event: ft.ControlEvent,
+    ) -> None:
+        state["mobile_mode"] = (
+            not state["mobile_mode"]
+        )
 
         if state["mobile_mode"]:
             app_shell.width = 390
             app_shell.height = 820
             app_shell.border_radius = 24
-            mode_button.icon = ft.Icons.PHONE_IPHONE
-            mode_button.tooltip = "Switch to desktop mode"
+
+            mode_button.icon = (
+                ft.Icons.PHONE_IPHONE
+            )
+            mode_button.tooltip = (
+                "Switch to desktop mode"
+            )
         else:
             app_shell.width = 900
             app_shell.height = 760
             app_shell.border_radius = 8
-            mode_button.icon = ft.Icons.DESKTOP_WINDOWS
-            mode_button.tooltip = "Switch to mobile mode"
+
+            mode_button.icon = (
+                ft.Icons.DESKTOP_WINDOWS
+            )
+            mode_button.tooltip = (
+                "Switch to mobile mode"
+            )
 
         page.update()
 
@@ -328,14 +363,24 @@ def main(page: ft.Page) -> None:
     # Booking helpers
     # ---------------------------------------------------------
 
-    def booking_date(booking: dict[str, Any]) -> date | None:
+    def booking_date(
+        booking: dict[str, Any],
+    ) -> date | None:
         try:
-            return date.fromisoformat(str(booking["session_date"]))
-        except (KeyError, TypeError, ValueError):
+            return date.fromisoformat(
+                str(booking["session_date"])
+            )
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
             return None
 
-    def bookings_for_day(day: int) -> list[dict[str, Any]]:
-        results = []
+    def bookings_for_day(
+        day: int,
+    ) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
 
         for booking in state["bookings"]:
             parsed = booking_date(booking)
@@ -353,58 +398,129 @@ def main(page: ft.Page) -> None:
     def day_has_booking(day: int) -> bool:
         return bool(bookings_for_day(day))
 
+    # ---------------------------------------------------------
+    # Meeting functionality
+    # ---------------------------------------------------------
+
     async def join_meeting(
         event: ft.ControlEvent,
         booking: dict[str, Any],
     ) -> None:
-        room_name = str(booking.get("meeting_room") or "").strip()
+        room_name = str(
+            booking.get("meeting_room") or ""
+        ).strip()
 
         if not room_name:
-            show_error("This booking does not have a meeting room.")
+            show_error(
+                "This booking does not have "
+                "a meeting room."
+            )
             return
 
-        safe_room_name = room_name.replace(" ", "-")
-        meeting_url = f"https://meet.jit.si/{safe_room_name}"
+        safe_room_name = (
+            room_name
+            .replace(" ", "-")
+            .replace("/", "-")
+        )
+
+        meeting_url = (
+            f"https://meet.jit.si/"
+            f"{safe_room_name}"
+        )
 
         try:
-            await launcher.launch_url(meeting_url)
+            await launcher.launch_url(
+                meeting_url,
+                web_only_window_name="_blank",
+            )
         except Exception as error:
-            show_error(f"Could not open the meeting: {error}")
+            show_error(
+                f"Could not open the meeting: {error}"
+            )
+
+    def make_join_handler(
+        booking: dict[str, Any],
+    ) -> Callable[
+        [ft.ControlEvent],
+        Awaitable[None],
+    ]:
+        async def handle_join(
+            event: ft.ControlEvent,
+        ) -> None:
+            await join_meeting(
+                event,
+                booking,
+            )
+
+        return handle_join
+
+    # ---------------------------------------------------------
+    # Location functionality
+    # ---------------------------------------------------------
 
     def show_location(
         event: ft.ControlEvent,
         booking: dict[str, Any],
     ) -> None:
-        location = booking.get("location") or "No location provided."
-
-        dialog = ft.AlertDialog(
-            title=ft.Text("Session location"),
-            content=ft.Column(
-                tight=True,
-                spacing=12,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Icon(
-                        ft.Icons.LOCATION_ON,
-                        size=44,
-                        color=ACCENT,
-                    ),
-                    ft.Text(
-                        str(location),
-                        size=16,
-                        text_align=ft.TextAlign.CENTER,
-                    ),
-                ],
-            ),
-            actions=[
-                ft.TextButton(
-                    "Close",
-                    on_click=lambda e: page.pop_dialog(),
-                )
-            ],
+        location = (
+            booking.get("location")
+            or "No location provided."
         )
 
-        page.show_dialog(dialog)
+        page.show_dialog(
+            ft.AlertDialog(
+                title=ft.Text(
+                    "Session location"
+                ),
+                content=ft.Column(
+                    tight=True,
+                    spacing=12,
+                    horizontal_alignment=(
+                        ft.CrossAxisAlignment.CENTER
+                    ),
+                    controls=[
+                        ft.Icon(
+                            ft.Icons.LOCATION_ON,
+                            size=44,
+                            color=ACCENT,
+                        ),
+                        ft.Text(
+                            str(location),
+                            size=16,
+                            text_align=(
+                                ft.TextAlign.CENTER
+                            ),
+                        ),
+                    ],
+                ),
+                actions=[
+                    ft.TextButton(
+                        "Close",
+                        on_click=close_dialog,
+                    )
+                ],
+            )
+        )
+
+    def make_location_handler(
+        booking: dict[str, Any],
+    ) -> Callable[
+        [ft.ControlEvent],
+        None,
+    ]:
+        def handle_location(
+            event: ft.ControlEvent,
+        ) -> None:
+            show_location(
+                event,
+                booking,
+            )
+
+        return handle_location
+
+    # ---------------------------------------------------------
+    # Booking cards
+    # ---------------------------------------------------------
 
     def booking_card(
         booking: dict[str, Any],
@@ -412,7 +528,11 @@ def main(page: ft.Page) -> None:
     ) -> ft.Container:
         online = is_online(booking)
 
-        title = booking.get("title") or "Skill session"
+        title = (
+            booking.get("title")
+            or "Skill session"
+        )
+
         teacher = (
             booking.get("teacher_name")
             or booking.get("teacher")
@@ -432,7 +552,9 @@ def main(page: ft.Page) -> None:
                         ),
                         ft.Text(
                             format_booking_date(
-                                booking.get("session_date")
+                                booking.get(
+                                    "session_date"
+                                )
                             ),
                             color=SECONDARY_TEXT,
                         ),
@@ -451,7 +573,9 @@ def main(page: ft.Page) -> None:
                         ),
                         ft.Text(
                             format_booking_time(
-                                booking.get("session_time")
+                                booking.get(
+                                    "session_time"
+                                )
                             ),
                             color=SECONDARY_TEXT,
                         ),
@@ -461,17 +585,21 @@ def main(page: ft.Page) -> None:
                     controls=[
                         ft.Icon(
                             (
-                                ft.Icons.VIDEO_CALL_OUTLINED
+                                ft.Icons
+                                .VIDEO_CALL_OUTLINED
                                 if online
-                                else ft.Icons.PERSON_PIN_CIRCLE_OUTLINED
+                                else ft.Icons
+                                .PERSON_PIN_CIRCLE_OUTLINED
                             ),
                             size=18,
                             color=SECONDARY_TEXT,
                         ),
                         ft.Text(
-                            "Online meeting"
-                            if online
-                            else "In-person session",
+                            (
+                                "Online meeting"
+                                if online
+                                else "In-person session"
+                            ),
                             color=SECONDARY_TEXT,
                         ),
                     ]
@@ -482,17 +610,25 @@ def main(page: ft.Page) -> None:
         if not online:
             details.append(
                 ft.Row(
-                    vertical_alignment=ft.CrossAxisAlignment.START,
+                    vertical_alignment=(
+                        ft.CrossAxisAlignment.START
+                    ),
                     controls=[
                         ft.Icon(
-                            ft.Icons.LOCATION_ON_OUTLINED,
+                            ft.Icons
+                            .LOCATION_ON_OUTLINED,
                             size=18,
                             color=ACCENT,
                         ),
                         ft.Text(
                             str(
-                                booking.get("location")
-                                or "No location provided"
+                                booking.get(
+                                    "location"
+                                )
+                                or (
+                                    "No location "
+                                    "provided"
+                                )
                             ),
                             expand=True,
                             color=SECONDARY_TEXT,
@@ -501,32 +637,28 @@ def main(page: ft.Page) -> None:
                 )
             )
 
-        action_button = ft.FilledButton(
-            content=(
-                "Join Meeting"
-                if online
-                else "View Location"
-            ),
-            icon=(
-                ft.Icons.VIDEO_CALL
-                if online
-                else ft.Icons.LOCATION_ON
-            ),
-            bgcolor=ACCENT,
-            color="#FFFFFF",
-            height=44,
-            on_click=(
-                (
-                    lambda event, selected=booking:
-                    join_meeting(event, selected)
-                )
-                if online
-                else (
-                    lambda event, selected=booking:
-                    show_location(event, selected)
-                )
-            ),
-        )
+        if online:
+            action_button = ft.FilledButton(
+                content="Join Meeting",
+                icon=ft.Icons.VIDEO_CALL,
+                bgcolor=ACCENT,
+                color="#FFFFFF",
+                height=44,
+                on_click=make_join_handler(
+                    booking
+                ),
+            )
+        else:
+            action_button = ft.FilledButton(
+                content="View Location",
+                icon=ft.Icons.LOCATION_ON,
+                bgcolor=ACCENT,
+                color="#FFFFFF",
+                height=44,
+                on_click=make_location_handler(
+                    booking
+                ),
+            )
 
         return ft.Container(
             bgcolor=SURFACE_LIGHT,
@@ -543,12 +675,16 @@ def main(page: ft.Page) -> None:
                                 height=44,
                                 border_radius=12,
                                 bgcolor=ACCENT,
-                                alignment=ft.Alignment.CENTER,
+                                alignment=(
+                                    ft.Alignment.CENTER
+                                ),
                                 content=ft.Icon(
                                     (
-                                        ft.Icons.VIDEO_CALL
+                                        ft.Icons
+                                        .VIDEO_CALL
                                         if online
-                                        else ft.Icons.SPORTS_SOCCER
+                                        else ft.Icons
+                                        .SPORTS_SOCCER
                                     ),
                                     color="#FFFFFF",
                                 ),
@@ -560,18 +696,25 @@ def main(page: ft.Page) -> None:
                                     ft.Text(
                                         str(title),
                                         size=16,
-                                        weight=ft.FontWeight.BOLD,
+                                        weight=(
+                                            ft.FontWeight
+                                            .BOLD
+                                        ),
                                     ),
                                     ft.Text(
                                         f"With {teacher}",
-                                        color=SECONDARY_TEXT,
+                                        color=(
+                                            SECONDARY_TEXT
+                                        ),
                                     ),
                                 ],
                             ),
                             ft.Container(
-                                padding=ft.Padding.symmetric(
-                                    horizontal=9,
-                                    vertical=5,
+                                padding=(
+                                    ft.Padding.symmetric(
+                                        horizontal=9,
+                                        vertical=5,
+                                    )
                                 ),
                                 border_radius=12,
                                 bgcolor=ACCENT_DARK,
@@ -583,7 +726,10 @@ def main(page: ft.Page) -> None:
                             ),
                         ],
                     ),
-                    ft.Divider(height=1, color=BORDER),
+                    ft.Divider(
+                        height=1,
+                        color=BORDER,
+                    ),
                     *details,
                     action_button,
                 ],
@@ -600,7 +746,9 @@ def main(page: ft.Page) -> None:
         weight=ft.FontWeight.BOLD,
     )
 
-    calendar_grid = ft.Column(spacing=6)
+    calendar_grid = ft.Column(
+        spacing=6
+    )
 
     selected_date_area = ft.Container()
 
@@ -611,7 +759,9 @@ def main(page: ft.Page) -> None:
             state["selected_day"],
         )
 
-        return selected.strftime("%A, %d %B %Y")
+        return selected.strftime(
+            "%A, %d %B %Y"
+        )
 
     def update_selected_date_area() -> None:
         selected_bookings = bookings_for_day(
@@ -637,44 +787,64 @@ def main(page: ft.Page) -> None:
                     padding=20,
                     alignment=ft.Alignment.CENTER,
                     content=ft.Text(
-                        "No sessions scheduled for this date.",
+                        (
+                            "No sessions scheduled "
+                            "for this date."
+                        ),
                         color=SECONDARY_TEXT,
-                        text_align=ft.TextAlign.CENTER,
+                        text_align=(
+                            ft.TextAlign.CENTER
+                        ),
                     ),
                 )
             )
 
-        selected_date_area.content = ft.Column(
-            spacing=12,
-            controls=controls,
+        selected_date_area.content = (
+            ft.Column(
+                spacing=12,
+                controls=controls,
+            )
         )
 
     def select_day(day: int) -> None:
         state["selected_day"] = day
+
         build_calendar()
         update_selected_date_area()
         page.update()
 
-    def day_cell(day: int | None) -> ft.Control:
+    def day_cell(
+        day: int | None,
+    ) -> ft.Control:
         if day is None:
             return ft.Container(height=42)
 
-        selected = day == state["selected_day"]
+        selected = (
+            day == state["selected_day"]
+        )
+
         has_booking = day_has_booking(day)
 
         return ft.Container(
             height=42,
             alignment=ft.Alignment.CENTER,
             border_radius=21,
-            bgcolor=SELECTED if selected else None,
+            bgcolor=(
+                SELECTED if selected else None
+            ),
             ink=True,
-            on_click=lambda event, value=day: select_day(value),
+            on_click=(
+                lambda event, value=day:
+                select_day(value)
+            ),
             content=ft.Stack(
                 width=38,
                 height=38,
                 controls=[
                     ft.Container(
-                        alignment=ft.Alignment.CENTER,
+                        alignment=(
+                            ft.Alignment.CENTER
+                        ),
                         content=ft.Text(
                             str(day),
                             size=14,
@@ -686,14 +856,22 @@ def main(page: ft.Page) -> None:
                             weight=(
                                 ft.FontWeight.BOLD
                                 if selected
-                                else ft.FontWeight.NORMAL
+                                else (
+                                    ft.FontWeight
+                                    .NORMAL
+                                )
                             ),
                         ),
                     ),
                     ft.Container(
                         visible=has_booking,
-                        alignment=ft.Alignment.BOTTOM_CENTER,
-                        padding=ft.Padding.only(bottom=2),
+                        alignment=(
+                            ft.Alignment
+                            .BOTTOM_CENTER
+                        ),
+                        padding=ft.Padding.only(
+                            bottom=2
+                        ),
                         content=ft.Container(
                             width=6,
                             height=6,
@@ -710,12 +888,16 @@ def main(page: ft.Page) -> None:
         month = state["month"]
 
         month_title.value = (
-            f"{calendar.month_name[month]} {year}"
+            f"{calendar.month_name[month]} "
+            f"{year}"
         )
 
         month_rows = calendar.Calendar(
             firstweekday=6
-        ).monthdayscalendar(year, month)
+        ).monthdayscalendar(
+            year,
+            month,
+        )
 
         weekday_names = [
             "Sun",
@@ -733,7 +915,9 @@ def main(page: ft.Page) -> None:
                 controls=[
                     ft.Container(
                         expand=True,
-                        alignment=ft.Alignment.CENTER,
+                        alignment=(
+                            ft.Alignment.CENTER
+                        ),
                         content=ft.Text(
                             weekday,
                             size=12,
@@ -753,7 +937,9 @@ def main(page: ft.Page) -> None:
                         ft.Container(
                             expand=True,
                             content=day_cell(
-                                day if day else None
+                                day
+                                if day
+                                else None
                             ),
                         )
                         for day in week
@@ -763,8 +949,12 @@ def main(page: ft.Page) -> None:
 
         calendar_grid.controls = controls
 
-    def change_month(amount: int) -> None:
-        new_month = state["month"] + amount
+    def change_month(
+        amount: int,
+    ) -> None:
+        new_month = (
+            state["month"] + amount
+        )
         new_year = state["year"]
 
         if new_month < 1:
@@ -792,24 +982,40 @@ def main(page: ft.Page) -> None:
             spacing=16,
             controls=[
                 ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    alignment=(
+                        ft.MainAxisAlignment
+                        .SPACE_BETWEEN
+                    ),
                     controls=[
                         ft.IconButton(
-                            icon=ft.Icons.CHEVRON_LEFT,
+                            icon=(
+                                ft.Icons
+                                .CHEVRON_LEFT
+                            ),
                             bgcolor=SURFACE_LIGHT,
-                            on_click=lambda event: change_month(-1),
+                            on_click=lambda event: (
+                                change_month(-1)
+                            ),
                         ),
                         month_title,
                         ft.IconButton(
-                            icon=ft.Icons.CHEVRON_RIGHT,
+                            icon=(
+                                ft.Icons
+                                .CHEVRON_RIGHT
+                            ),
                             bgcolor=SURFACE_LIGHT,
-                            on_click=lambda event: change_month(1),
+                            on_click=lambda event: (
+                                change_month(1)
+                            ),
                         ),
                     ],
                 ),
                 ft.Container(
                     bgcolor=SURFACE,
-                    border=ft.Border.all(1, BORDER),
+                    border=ft.Border.all(
+                        1,
+                        BORDER,
+                    ),
                     border_radius=10,
                     padding=10,
                     content=calendar_grid,
@@ -827,7 +1033,9 @@ def main(page: ft.Page) -> None:
     # Sessions tabs
     # ---------------------------------------------------------
 
-    session_body = ft.Container(expand=True)
+    session_body = ft.Container(
+        expand=True
+    )
 
     tab_names = [
         "Calendar",
@@ -837,7 +1045,9 @@ def main(page: ft.Page) -> None:
         "Completed",
     ]
 
-    tab_buttons: list[ft.TextButton] = []
+    tab_buttons: list[
+        ft.TextButton
+    ] = []
 
     def empty_tab(
         icon: str,
@@ -850,7 +1060,9 @@ def main(page: ft.Page) -> None:
             padding=30,
             content=ft.Column(
                 tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                horizontal_alignment=(
+                    ft.CrossAxisAlignment.CENTER
+                ),
                 spacing=12,
                 controls=[
                     ft.Icon(
@@ -862,11 +1074,16 @@ def main(page: ft.Page) -> None:
                         title,
                         size=20,
                         weight=ft.FontWeight.BOLD,
+                        text_align=(
+                            ft.TextAlign.CENTER
+                        ),
                     ),
                     ft.Text(
                         message,
                         color=SECONDARY_TEXT,
-                        text_align=ft.TextAlign.CENTER,
+                        text_align=(
+                            ft.TextAlign.CENTER
+                        ),
                     ),
                 ],
             ),
@@ -886,21 +1103,38 @@ def main(page: ft.Page) -> None:
                 empty_tab(
                     ft.Icons.EVENT_BUSY,
                     "No upcoming sessions",
-                    "Your shared bookings will appear here.",
+                    (
+                        "Your shared bookings "
+                        "will appear here."
+                    ),
                 )
             )
         else:
             sorted_bookings = sorted(
                 state["bookings"],
                 key=lambda item: (
-                    str(item.get("session_date") or ""),
-                    str(item.get("session_time") or ""),
+                    str(
+                        item.get(
+                            "session_date"
+                        )
+                        or ""
+                    ),
+                    str(
+                        item.get(
+                            "session_time"
+                        )
+                        or ""
+                    ),
                 ),
             )
 
             controls.extend(
-                booking_card(booking, show_date=True)
-                for booking in sorted_bookings
+                booking_card(
+                    booking,
+                    show_date=True,
+                )
+                for booking
+                in sorted_bookings
             )
 
         return ft.Column(
@@ -910,10 +1144,14 @@ def main(page: ft.Page) -> None:
             controls=controls,
         )
 
-    def show_session_tab(index: int) -> None:
+    def show_session_tab(
+        index: int,
+    ) -> None:
         state["session_tab"] = index
 
-        for button_index, button in enumerate(tab_buttons):
+        for button_index, button in enumerate(
+            tab_buttons
+        ):
             button.style = ft.ButtonStyle(
                 bgcolor=(
                     SURFACE_LIGHT
@@ -925,39 +1163,63 @@ def main(page: ft.Page) -> None:
                     if button_index == index
                     else SECONDARY_TEXT
                 ),
-                shape=ft.RoundedRectangleBorder(radius=7),
+                shape=(
+                    ft.RoundedRectangleBorder(
+                        radius=7
+                    )
+                ),
             )
 
         if index == 0:
-            session_body.content = calendar_view()
+            session_body.content = (
+                calendar_view()
+            )
         elif index == 1:
             session_body.content = empty_tab(
                 ft.Icons.MAIL_OUTLINE,
                 "No booking requests",
-                "New booking requests will appear here.",
+                (
+                    "New booking requests "
+                    "will appear here."
+                ),
             )
         elif index == 2:
-            session_body.content = upcoming_view()
+            session_body.content = (
+                upcoming_view()
+            )
         elif index == 3:
             session_body.content = empty_tab(
                 ft.Icons.SCHOOL_OUTLINED,
                 "No teaching sessions",
-                "Sessions you teach will appear here.",
+                (
+                    "Sessions you teach "
+                    "will appear here."
+                ),
             )
         else:
             session_body.content = empty_tab(
-                ft.Icons.CHECK_CIRCLE_OUTLINE,
+                ft.Icons
+                .CHECK_CIRCLE_OUTLINE,
                 "No completed sessions",
-                "Completed sessions will appear here.",
+                (
+                    "Completed sessions "
+                    "will appear here."
+                ),
             )
 
         page.update()
 
-    for index, tab_name in enumerate(tab_names):
+    for index, tab_name in enumerate(
+        tab_names
+    ):
         tab_buttons.append(
             ft.TextButton(
-                content=ft.Text(tab_name, size=13),
-                on_click=lambda event, value=index: (
+                content=ft.Text(
+                    tab_name,
+                    size=13,
+                ),
+                on_click=(
+                    lambda event, value=index:
                     show_session_tab(value)
                 ),
             )
@@ -985,42 +1247,66 @@ def main(page: ft.Page) -> None:
 
         try:
             response = (
-                supabase.table("bookings")
+                supabase
+                .table("bookings")
                 .select("*")
-                .eq("status", "upcoming")
+                .eq(
+                    "status",
+                    "upcoming",
+                )
                 .order("session_date")
                 .order("session_time")
                 .execute()
             )
 
-            state["bookings"] = response.data or []
+            state["bookings"] = (
+                response.data or []
+            )
 
-            # Open the month containing the first booking.
             if state["bookings"]:
-                first_date = booking_date(state["bookings"][0])
+                first_date = booking_date(
+                    state["bookings"][0]
+                )
 
                 if first_date is not None:
-                    state["year"] = first_date.year
-                    state["month"] = first_date.month
-                    state["selected_day"] = first_date.day
+                    state["year"] = (
+                        first_date.year
+                    )
+                    state["month"] = (
+                        first_date.month
+                    )
+                    state["selected_day"] = (
+                        first_date.day
+                    )
 
-            show_session_tab(state["session_tab"])
+            show_session_tab(
+                state["session_tab"]
+            )
 
         except Exception as error:
-            show_error(f"Could not load bookings: {error}")
+            state["bookings"] = []
+
+            show_error(
+                "Could not load bookings: "
+                f"{error}"
+            )
 
         finally:
             loading.visible = False
             page.update()
 
-    def refresh_bookings(event: ft.ControlEvent) -> None:
+    def refresh_bookings(
+        event: ft.ControlEvent,
+    ) -> None:
         load_bookings()
 
     # ---------------------------------------------------------
     # Sessions screen and navigation
     # ---------------------------------------------------------
 
-    def logout(event: ft.ControlEvent) -> None:
+    def logout(
+        event: ft.ControlEvent,
+    ) -> None:
         try:
             supabase.auth.sign_out()
         except Exception:
@@ -1028,6 +1314,7 @@ def main(page: ft.Page) -> None:
 
         state["user"] = None
         state["bookings"] = []
+
         show_login_page()
 
     def placeholder_page(
@@ -1040,7 +1327,9 @@ def main(page: ft.Page) -> None:
             alignment=ft.Alignment.CENTER,
             content=ft.Column(
                 tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                horizontal_alignment=(
+                    ft.CrossAxisAlignment.CENTER
+                ),
                 spacing=12,
                 controls=[
                     ft.Icon(
@@ -1054,12 +1343,24 @@ def main(page: ft.Page) -> None:
                         weight=ft.FontWeight.BOLD,
                     ),
                     ft.Text(
-                        "This page is not included in the demo.",
+                        (
+                            "This page is not "
+                            "included in the demo."
+                        ),
                         color=SECONDARY_TEXT,
+                        text_align=(
+                            ft.TextAlign.CENTER
+                        ),
                     ),
                 ],
             ),
         )
+
+    user_email_text = ft.Text(
+        "",
+        size=11,
+        color=SECONDARY_TEXT,
+    )
 
     sessions_screen = ft.Container(
         expand=True,
@@ -1075,7 +1376,10 @@ def main(page: ft.Page) -> None:
             spacing=12,
             controls=[
                 ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    alignment=(
+                        ft.MainAxisAlignment
+                        .SPACE_BETWEEN
+                    ),
                     controls=[
                         ft.Column(
                             spacing=1,
@@ -1083,13 +1387,12 @@ def main(page: ft.Page) -> None:
                                 ft.Text(
                                     "Sessions",
                                     size=24,
-                                    weight=ft.FontWeight.BOLD,
+                                    weight=(
+                                        ft.FontWeight
+                                        .BOLD
+                                    ),
                                 ),
-                                ft.Text(
-                                    "",
-                                    size=11,
-                                    color=SECONDARY_TEXT,
-                                ),
+                                user_email_text,
                             ],
                         ),
                         ft.Row(
@@ -1097,13 +1400,21 @@ def main(page: ft.Page) -> None:
                             controls=[
                                 loading,
                                 ft.IconButton(
-                                    icon=ft.Icons.REFRESH,
+                                    icon=(
+                                        ft.Icons
+                                        .REFRESH
+                                    ),
                                     tooltip="Refresh",
-                                    on_click=refresh_bookings,
+                                    on_click=(
+                                        refresh_bookings
+                                    ),
                                 ),
                                 mode_button,
                                 ft.IconButton(
-                                    icon=ft.Icons.LOGOUT,
+                                    icon=(
+                                        ft.Icons
+                                        .LOGOUT
+                                    ),
                                     tooltip="Log out",
                                     on_click=logout,
                                 ),
@@ -1122,7 +1433,9 @@ def main(page: ft.Page) -> None:
         ),
     )
 
-    main_area = ft.Container(expand=True)
+    main_area = ft.Container(
+        expand=True
+    )
 
     bottom_pages = [
         lambda: placeholder_page(
@@ -1144,9 +1457,15 @@ def main(page: ft.Page) -> None:
         lambda: sessions_screen,
     ]
 
-    def change_bottom_page(event: ft.ControlEvent) -> None:
+    def change_bottom_page(
+        event: ft.ControlEvent,
+    ) -> None:
         index = event.control.selected_index
-        main_area.content = bottom_pages[index]()
+
+        main_area.content = (
+            bottom_pages[index]()
+        )
+
         page.update()
 
     bottom_navigation = ft.NavigationBar(
@@ -1175,8 +1494,13 @@ def main(page: ft.Page) -> None:
                 label="Profile",
             ),
             ft.NavigationBarDestination(
-                icon=ft.Icons.CALENDAR_MONTH_OUTLINED,
-                selected_icon=ft.Icons.CALENDAR_MONTH,
+                icon=(
+                    ft.Icons
+                    .CALENDAR_MONTH_OUTLINED
+                ),
+                selected_icon=(
+                    ft.Icons.CALENDAR_MONTH
+                ),
                 label="Sessions",
             ),
         ],
@@ -1189,9 +1513,9 @@ def main(page: ft.Page) -> None:
             show_login_page()
             return
 
-        # Display logged-in email under the page heading.
-        sessions_screen.content.controls[0].controls[0].controls[1].value = (
-            user.email or "Logged-in user"
+        user_email_text.value = (
+            user.email
+            or "Logged-in user"
         )
 
         main_area.content = sessions_screen
