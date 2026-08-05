@@ -297,16 +297,16 @@ def main(page: ft.Page) -> None:
                 spacing=16,
                 controls=[
                     ft.Container(
-                        width=72,
-                        height=72,
+                        width=90,
+                        height=90,
                         border_radius=20,
-                        bgcolor=ACCENT,
-                        alignment=ft.Alignment.CENTER,
-                        content=ft.Icon(
-                            ft.Icons.SWAP_HORIZ,
-                            size=40,
-                            color="#FFFFFF",
-                        ),
+                        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                        content=ft.Image(
+                        src="logo.png",
+                        width=90,
+                        height=90,
+                        fit=ft.BoxFit.CONTAIN,
+                    ),
                     ),
                     ft.Text(
                         "SkillSwap",
@@ -1552,11 +1552,10 @@ def main(page: ft.Page) -> None:
     page.add(root)
     show_login_page()
 
-
-if __name__ == "__main__":
-    ft.run(
-        main,
-        view=ft.AppView.WEB_BROWSER,
-        host="0.0.0.0",
-        port=8000,
-    )
+ft.run(
+    main,
+    view=ft.AppView.WEB_BROWSER,
+    host="0.0.0.0",
+    port=8000,
+    assets_dir="assets",
+)
