@@ -6,6 +6,8 @@ from typing import Any
 
 import flet as ft
 
+from database import create_realtime_client
+
 
 class FriendsChatFeature:
     """Friends, requests, and one-to-one chat UI backed by Supabase."""
@@ -41,6 +43,7 @@ class FriendsChatFeature:
 
         self.current_tab = 0
         self.selected_friend: dict[str, Any] | None = None
+        self.realtime_client: Any = None
         self.message_channel: Any = None
         self.messages: list[dict[str, Any]] = []
 
@@ -755,21 +758,43 @@ class FriendsChatFeature:
             self._show_error(f"Could not send the message: {error}")
 
     async def _subscribe_to_messages(self) -> None:
+        """Subscribe to new messages using Supabase's async Realtime client."""
         await self._remove_message_channel()
+
         user = self.current_user
         friend = self.selected_friend
+
         if user is None or friend is None:
             return
 
-        channel_name = f"messages-{user.id}-{friend.get('friend_id')}"
-
-        def handle_change(_: Any) -> None:
-            if self.selected_friend is not None:
-                self.load_messages()
-
         try:
+            self.realtime_client = await create_realtime_client()
+
+            # Copy the current authenticated session to the async client so
+            # Realtime applies the same RLS permissions as the normal client.
+            session = self.supabase.auth.get_session()
+
+            if session is None:
+                print("Realtime warning: no authenticated session")
+                return
+
+            await self.realtime_client.auth.set_session(
+                session.access_token,
+                session.refresh_token,
+            )
+
+            friend_id = str(friend.get("friend_id") or "")
+            channel_name = f"messages-{user.id}-{friend_id}"
+
+            def handle_change(payload: Any) -> None:
+                # The callback itself is synchronous. Schedule the async reload
+                # through Flet so the UI updates safely.
+                if self.selected_friend is not None:
+                    self.page.run_task(self._reload_messages_after_change)
+
             self.message_channel = (
-                self.supabase.channel(channel_name)
+                self.realtime_client
+                .channel(channel_name)
                 .on_postgres_changes(
                     "INSERT",
                     schema="public",
@@ -777,20 +802,34 @@ class FriendsChatFeature:
                     callback=handle_change,
                 )
             )
+
             await self.message_channel.subscribe()
+            print("Realtime chat connected")
+
         except Exception as error:
-            # Chat still works through the immediate fallback reload after send.
             print(f"Realtime subscription warning: {error}")
 
+    async def _reload_messages_after_change(self) -> None:
+        # Allow the insert transaction to finish before reloading.
+        await asyncio.sleep(0.1)
+
+        if self.selected_friend is not None:
+            self.load_messages()
+
     async def _remove_message_channel(self) -> None:
-        if self.message_channel is None:
-            return
-        try:
-            await self.supabase.remove_channel(self.message_channel)
-        except Exception:
-            pass
-        finally:
-            self.message_channel = None
+        if (
+            self.message_channel is not None
+            and self.realtime_client is not None
+        ):
+            try:
+                await self.realtime_client.remove_channel(
+                    self.message_channel
+                )
+            except Exception as error:
+                print(f"Could not remove Realtime channel: {error}")
+
+        self.message_channel = None
+        self.realtime_client = None
 
     # ------------------------------------------------------------------
     # Miscellaneous
