@@ -5,6 +5,7 @@ from typing import Any, Callable, Awaitable
 import flet as ft
 
 from database import create_supabase_client
+from friends_chat import FriendsChatFeature
 
 
 # ---------------------------------------------------------
@@ -118,6 +119,21 @@ def main(page: ft.Page) -> None:
             "video_call",
         }
 
+    friends_feature = FriendsChatFeature(
+        page=page,
+        supabase=supabase,
+        state=state,
+        background=BACKGROUND,
+        surface=SURFACE,
+        surface_light=SURFACE_LIGHT,
+        border=BORDER,
+        primary_text=PRIMARY_TEXT,
+        secondary_text=SECONDARY_TEXT,
+        accent=ACCENT,
+        accent_dark=ACCENT_DARK,
+        accent_light=ACCENT_LIGHT,
+    )
+
     # ---------------------------------------------------------
     # Authentication screen
     # ---------------------------------------------------------
@@ -212,6 +228,7 @@ def main(page: ft.Page) -> None:
                 return
 
             state["user"] = response.user
+            friends_feature.on_login(response.user)
             show_sessions_page()
 
         except Exception as error:
@@ -249,6 +266,7 @@ def main(page: ft.Page) -> None:
                 )
             else:
                 state["user"] = response.user
+                friends_feature.on_login(response.user)
                 show_sessions_page()
 
         except Exception as error:
@@ -1314,6 +1332,7 @@ def main(page: ft.Page) -> None:
 
         state["user"] = None
         state["bookings"] = []
+        friends_feature.reset()
 
         show_login_page()
 
@@ -1446,10 +1465,7 @@ def main(page: ft.Page) -> None:
             "Discover",
             ft.Icons.SEARCH,
         ),
-        lambda: placeholder_page(
-            "Friends",
-            ft.Icons.GROUP_OUTLINED,
-        ),
+        lambda: friends_feature.build_page(),
         lambda: placeholder_page(
             "Profile",
             ft.Icons.PERSON_OUTLINE,
